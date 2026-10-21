@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Ruta de Halloween 🎃</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+:root{--bg:#fff6ea;--ink:#2b1a3b;--card:#fff;--mut:#7a6a8a;--acc:#e8650a;--line:#e4d8ef}
+@media (prefers-color-scheme:dark){:root{--bg:#150d1f;--ink:#f4ecfb;--card:#241636;--mut:#a998bd;--acc:#ff8a2a;--line:#3a2954;color-scheme:dark}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,"Segoe UI",sans-serif;line-height:1.4;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+main{max-width:640px;margin:0 auto;padding:14px}
+h1{font-size:1.4rem;margin:2px 0 10px}
+#map{height:55vh;min-height:300px;border-radius:14px;border:1px solid var(--line);z-index:0}
+.pk{font-size:28px;line-height:1;text-align:center;position:relative}
+.pk b{position:absolute;right:-4px;top:-8px;background:#2b1a3b;color:#fff;border-radius:9px;font-size:11px;padding:1px 5px}
+nav{display:flex;gap:6px;margin:12px 0}
+nav button{flex:1;padding:10px 4px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink);font-size:.95rem;font-weight:600}
+nav button.on{background:var(--acc);color:#1a0d00;border-color:var(--acc)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:12px}
+.p{display:none}.p.on{display:block}
+input{width:100%;padding:10px;margin:4px 0;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink);font-size:1rem}
+.row{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
+.row button,.row a{flex:1;padding:11px;border:0;border-radius:10px;font-size:1rem;font-weight:600;background:var(--acc);color:#1a0d00;text-align:center;text-decoration:none}
+.row .g{background:var(--line);color:var(--ink)}
+.hint{font-size:.88rem;color:var(--mut);margin:8px 0 0}
+ul{list-style:none;margin:0;padding:0}li{padding:8px 0;border-bottom:1px solid var(--line)}li:last-child{border:0}
+small{color:var(--mut);display:block}
+</style>
+</head>
+<body>
+<main>
+<h1>🎃 Ruta de Halloween</h1>
+<div id="map"></div>
+<nav>
+<button data-t="ver" class="on">🗺️ Ver mapa</button>
+<button data-t="reg">🎃 Registrar</button>
+<button data-t="lis">📋 Casas</button>
+</nav>
+
+<div class="card p on" id="p-ver">
+<strong id="cnt">Cargando casas…</strong>
+<label style="display:block;margin-top:8px"><input type="checkbox" id="onlyd" checked style="width:auto"> Mostrar solo casas con dulces 🍬</label>
+<div class="row"><button id="route">Trazar ruta a pie</button><button class="g" id="clear">Quitar ruta</button></div>
+<div class="row" id="gm"></div>
+<p class="hint" id="rinfo"></p>
+</div>
+
+<div class="card p" id="p-reg">
+<input id="nom" placeholder="Nombre o familia" maxlength="40">
+<input id="dir" placeholder="Domicilio (calle, número, colonia)" maxlength="80">
+<div class="row"><button class="g" id="find">📍 Buscar en el mapa</button></div>
+<label style="display:block;margin:6px 0"><input type="checkbox" id="dul" checked style="width:auto"> Doy dulces 🍬</label>
+<input id="info" placeholder="Qué das y horario (ej. dulces, 6–9 pm)" maxlength="80">
+<div class="row"><button id="add">Registrar mi casa 🎃</button></div>
+<p class="hint" id="rh">Busca tu dirección o toca el mapa. Puedes arrastrar el 📍 para ajustarlo.</p>
+</div>
+
+<div class="card p" id="p-lis"><ul id="list"></ul><div class="row"><button class="g" id="admin">Modo admin</button></div></div>
+</main>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+// Cambia estos valores al centro de tu fraccionamiento o ciudad.
+var CENTER=[23.6345,-102.5528],ZOOM=5,API="/api/casas";
+
+var map=L.map("map").setView(CENTER,ZOOM);
+L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap"}).addTo(map);
+var all=[],houses=[],markers={},order=[],routeLine=null,pend=null,tab="ver",adminKey=null,me=null;
+function $(i){return document.getElementById(i)}
+var newId=null;
+function vis(){var o=$("onlyd").checked;return all.filter(function(h){return !o||h.dulces!==false})}
+
+function icon(n){return L.divIcon({className:"",iconSize:[34,34],iconAnchor:[17,17],html:'<div class="pk">🎃'+(n?"<b>"+n+"</b>":"")+"</div>"})}
+function popup(h){var d=document.createElement("div"),a=document.createElement("strong"),b=document.createElement("div");
+ a.textContent=h.nom;b.textContent=h.dir+(h.info?" · "+h.info:"");d.appendChild(a);d.appendChild(b);return d}
+
+function render(fit){
+ Object.keys(markers).forEach(function(k){map.removeLayer(markers[k])});markers={};
+ houses.forEach(function(h){var n=order.indexOf(h.id)+1;
+  markers[h.id]=L.marker([h.lat,h.lng],{icon:icon(n||"")}).bindPopup(popup(h)).addTo(map)});
+ $("cnt").textContent="Casas en el mapa: "+houses.length;
+ var L2=$("list");L2.textContent="";
+ houses.forEach(function(h){var li=document.createElement("li"),a=document.createElement("strong"),b=document.createElement("small");
+  a.textContent="🎃 "+h.nom;b.textContent=h.dir+(h.info?" · "+h.info:"");li.appendChild(a);li.appendChild(b);
+  li.onclick=function(){show("ver");map.setView([h.lat,h.lng],17);markers[h.id].openPopup()};
+  if(adminKey){var x=document.createElement("button");x.textContent="Quitar";x.className="g";x.style.marginTop="6px";
+   x.onclick=function(e){e.stopPropagation();del(h.id)};li.appendChild(x)}
+  L2.appendChild(li)});
+ if(fit&&houses.length)map.fitBounds(L.latLngBounds(houses.map(function(h){return[h.lat,h.lng]})).pad(0.2),{maxZoom:17});
+}
+function load(fit){return fetch(API).then(function(r){return r.json()}).then(function(d){all=d;houses=vis();render(fit)})
+ .catch(function(){$("cnt").textContent="No se pudieron cargar las casas."})}
+
+function show(t){tab=t;
+ document.querySelectorAll("nav button").forEach(function(b){b.classList.toggle("on",b.dataset.t===t)});
+ ["ver","reg","lis"].forEach(function(k){$("p-"+k).classList.toggle("on",k===t)});
+ if(t!=="reg"&&pend){map.removeLayer(pend);pend=null}}
+document.querySelectorAll("nav button").forEach(function(b){b.onclick=function(){show(b.dataset.t)}});
+
+function setPend(ll){if(pend)pend.setLatLng(ll);else{pend=L.marker(ll,{draggable:true}).addTo(map)}}
+map.on("click",function(e){if(tab==="reg"){setPend(e.latlng);$("rh").textContent="Ubicación marcada. Arrastra el pin si hace falta."}});
+$("find").onclick=function(){var q=$("dir").value.trim();if(!q){$("rh").textContent="Escribe tu domicilio primero.";return}
+ $("rh").textContent="Buscando…";
+ fetch("https://nominatim.openstreetmap.org/search?format=json&limit=1&q="+encodeURIComponent(q)).then(function(r){return r.json()}).then(function(r){
+  if(!r.length){$("rh").textContent="No la encontré. Agrega colonia o ciudad, o toca el mapa.";return}
+  var ll=L.latLng(+r[0].lat,+r[0].lon);setPend(ll);map.setView(ll,18);$("rh").textContent="Encontrada. Arrastra el pin si hace falta."})
+ .catch(function(){$("rh").textContent="Falló la búsqueda. Toca el mapa para ubicar tu casa."})};
+$("add").onclick=function(){var nom=$("nom").value.trim(),dir=$("dir").value.trim();
+ if(!nom||!dir){$("rh").textContent="Escribe tu nombre y domicilio.";return}
+ if(!pend){$("rh").textContent="Ubica tu casa en el mapa.";return}
+ var ll=pend.getLatLng();$("add").disabled=true;
+ fetch(API,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({nom:nom,dir:dir,info:$("info").value,dulces:$("dul").checked,lat:ll.lat,lng:ll.lng})})
+ .then(function(r){return r.json().then(function(d){if(!r.ok)throw new Error(d.error||"Error");return d})})
+ .then(function(d){newId=d.id;["nom","dir","info"].forEach(function(i){$(i).value=""});$("dul").checked=true;order=[];show("ver");return load(false)})
+ .then(function(){var h=houses.filter(function(x){return x.id===newId})[0];if(h){map.setView([h.lat,h.lng],17);markers[h.id].openPopup()}})
+ .catch(function(e){$("rh").textContent=e.message})
+ .then(function(){$("add").disabled=false})};
+
+function dist(a,b){return Math.hypot(a.lat-b.lat,a.lng-b.lng)}
+function plan(start){var left=houses.slice(),cur=start,out=[];
+ while(left.length){var bi=0,bd=1e9;left.forEach(function(h,i){var d=dist(cur,h);if(d<bd){bd=d;bi=i}});
+  cur=left.splice(bi,1)[0];out.push(cur)}return out}
+function doRoute(start){
+ var stops=plan(start);order=stops.map(function(h){return h.id});render(false);
+ var pts=[start].concat(stops),line=pts.map(function(p){return p.lng+","+p.lat}).join(";");
+ function draw(latlngs,txt){if(routeLine)map.removeLayer(routeLine);
+  routeLine=L.polyline(latlngs,{color:"#e8650a",weight:5,dashArray:"8 6"}).addTo(map);map.fitBounds(routeLine.getBounds().pad(0.15));$("rinfo").textContent=txt}
+ var gm=pts.slice(0,11).map(function(p){return p.lat+","+p.lng});
+ $("gm").textContent="";var a=document.createElement("a");a.textContent="Abrir en Google Maps";a.target="_blank";a.rel="noopener";
+ a.href="https://www.google.com/maps/dir/?api=1&travelmode=walking&origin="+gm[0]+"&destination="+gm[gm.length-1]+(gm.length>2?"&waypoints="+encodeURIComponent(gm.slice(1,-1).join("|")):"");
+ $("gm").appendChild(a);
+ fetch("https://router.project-osrm.org/route/v1/foot/"+line+"?overview=full&geometries=geojson").then(function(r){return r.json()}).then(function(d){
+  var r=d.routes&&d.routes[0];if(!r)throw 0;
+  draw(r.geometry.coordinates.map(function(c){return[c[1],c[0]]}),stops.length+" paradas · "+(r.distance/1000).toFixed(1)+" km a pie")})
+ .catch(function(){draw(pts.map(function(p){return[p.lat,p.lng]}),stops.length+" paradas (ruta aproximada en línea recta)")})}
+$("route").onclick=function(){
+ if(!houses.length){$("rinfo").textContent="Aún no hay casas registradas.";return}
+ var go=function(s){doRoute(s)};
+ if(!navigator.geolocation)return go(houses[0]);
+ $("rinfo").textContent="Buscando tu ubicación…";
+ navigator.geolocation.getCurrentPosition(function(p){go({lat:p.coords.latitude,lng:p.coords.longitude})},function(){go(houses[0])},{timeout:6000})};
+$("clear").onclick=function(){order=[];if(routeLine){map.removeLayer(routeLine);routeLine=null}$("gm").textContent="";$("rinfo").textContent="";render(false)};
+$("admin").onclick=function(){var k=prompt("Clave de administrador");if(k){adminKey=k;render(false)}};
+function del(id){fetch(API+"?id="+encodeURIComponent(id),{method:"DELETE",headers:{"x-admin-key":adminKey}})
+ .then(function(r){if(r.status===401){adminKey=null;alert("Clave incorrecta");render(false);return}return load(false)})}
+
+$("onlyd").onchange=function(){houses=vis();order=[];if(routeLine){map.removeLayer(routeLine);routeLine=null}$("gm").textContent="";$("rinfo").textContent="";render(true)};
+load(true).then(function(){if(!houses.length&&navigator.geolocation)navigator.geolocation.getCurrentPosition(function(p){map.setView([p.coords.latitude,p.coords.longitude],16)},function(){})});
+</script>
+</body>
+</html>
